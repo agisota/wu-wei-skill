@@ -1,6 +1,66 @@
-# Wu-Wei Rewriter Skill
+# Wu-Wei Rewriter Skill — v1.3
 
-A claim-rewriting skill for turning elegant-but-unsafe ideas into bounded, falsifiable, decision-grade language.
+A multilingual claim-rewriting skill for turning elegant-but-unsafe ideas into bounded, falsifiable, decision-grade language.
+
+Version 1.3 keeps the original philosophy and changes the training signal:
+
+- examples teach mechanism, not style;
+- predictions require a metric, source, threshold, and check date;
+- Russian output defaults to native Russian, not hybrid English/Russian product jargon;
+- compact output is the default for normal use;
+- full decision schema is reserved for strategy, research, public claims, and high-stakes memos;
+- structural objections include a repair path before refusal.
+
+---
+
+## What this skill does
+
+```text
+ARTIFACT → DIAGNOSE → TEST → REWRITE → KILL → LOG OR CHECK
+```
+
+The skill takes an existing artifact — thesis, claim, recommendation, pitch, conclusion, hypothesis, framework, or concept — and returns a version that:
+
+1. says what it actually claims;
+2. names where it applies and where it fails;
+3. removes rhetoric that does more work than the evidence;
+4. adds a checkable prediction or marks the claim as speculative;
+5. keeps a visible record of killed claims instead of silently softening them.
+
+The goal is not prettier prose. The goal is a claim that changes a decision, predicts something observable, and admits what would prove it wrong.
+
+---
+
+## When to use
+
+Use `wu-wei-rewriter` when you already have a draft and want to make it safer for decisions:
+
+- AI strategy claims;
+- founder / investor pitch language;
+- product positioning;
+- research conclusions;
+- architecture recommendations;
+- hiring and org-design arguments;
+- market theses;
+- public essays and memos;
+- personal operating principles that should become testable.
+
+Do not use it for:
+
+- grammar-only cleanup;
+- translation-only work;
+- ideation from zero;
+- long-form research without sources;
+- slogans that are supposed to remain slogans;
+- private therapeutic reflection where falsifiability would distort the purpose.
+
+Fast trigger:
+
+```text
+Use this skill when the sentence sounds true before it can be checked.
+```
+
+---
 
 ## Before / after examples
 
@@ -12,11 +72,20 @@ A claim-rewriting skill for turning elegant-but-unsafe ideas into bounded, falsi
 
 **After**
 
-> Multi-agent systems will take budget from single-LLM workflows first in enterprise processes where failure can be decomposed, reviewed, and retried: compliance review, support triage, internal research, and back-office QA. They will not replace single-call workflows where latency, audit ownership, or UI simplicity matters more than delegation.
+> Multi-agent workflows will take budget first in enterprise processes where failure can be split into steps, reviewed, and retried: support triage, compliance review, internal research, document QA, and back-office checks.
 >
-> Prediction: by 2027-11-01, at least three of the top ten AI workflow vendors will report agent-orchestration features as a material enterprise revenue driver; the thesis is weakened if single-call assistants remain the dominant paid usage pattern in regulated enterprises.
+> They will not replace single-call LLM workflows where latency, clear ownership, and interface simplicity matter more than delegation.
+>
+> Prediction: by 2027-11-01, using a fixed list of ten AI workflow vendors selected on 2026-06-01, at least three will publicly report paid enterprise usage or revenue tied specifically to multi-step agent orchestration, not only chat assistants. Confirm through vendor filings, pricing pages, customer case studies, or audited revenue commentary. Weaken this thesis if paid enterprise usage remains concentrated in single-call copilots and embedded assistants.
 
-**What changed:** the rewrite killed inevitability, narrowed the domain, preserved the useful model, and added a prediction that can be checked later.
+**What changed**
+
+- Killed: “replace” and “inevitable”.
+- Added boundary: decomposable, reviewable, retryable work.
+- Added counter-boundary: latency, ownership, UI simplicity.
+- Added check: fixed vendor set, source class, threshold, check date.
+
+---
 
 ### 2) Русский — продуктовый pitch
 
@@ -26,11 +95,25 @@ A claim-rewriting skill for turning elegant-but-unsafe ideas into bounded, falsi
 
 **После**
 
-> Продукт полезен не потому, что создаёт «новый язык мышления», а потому что снижает стоимость перехода от размытой цели к проверяемому агентному действию. Сильный кейс: пользователь формулирует намерение, система превращает его в план, выбирает runtime, запускает проверку и сохраняет evidence trail. Слабый кейс: обычный чат, где достаточно одного ответа без состояния, инструментов и проверки.
+> Мы не продаём «новый язык мышления». Мы продаём более короткий путь от намерения к проверенному действию.
 >
-> Прогноз: если это позиционирование верно, в течение 90 дней новые пользователи будут чаще возвращаться к workflow-запускам с артефактами, чем к одноразовым чатам; если retention держится только на novelty или демо-эффекте, frame надо убить.
+> Пользователь описывает цель. Система разбивает её на шаги, выбирает нужные инструменты, выполняет действие и показывает, что было сделано, на каких данных и с каким результатом.
+>
+> Сильные случаи: исследование, разбор входящих заявок, подготовка документов, контроль повторяемых операций и задачи с несколькими источниками данных.
+>
+> Слабые случаи: одноразовый вопрос в чат, творческий черновик без проверки, ручное решение, где пользователь обязан подтвердить каждый шаг.
+>
+> Проверка: за первые 90 дней после регистрации пользователи должны чаще возвращаться к повторным сценариям с сохранённым результатом, чем к одноразовым чатам. Источник: продуктовая аналитика по новым пользователям. Порог: повторный запуск сохранённого сценария у активированных пользователей выше повторного одноразового чата минимум на 20%. Если возврат держится только на демо-эффекте первой сессии, позиционирование надо пересмотреть.
 
-**Что изменилось:** метафора была оставлена только там, где она меняет решение; вместо «операционной системы мышления» появился проверяемый механизм ценности.
+**Что изменилось**
+
+- Убрана метафора «операционная система мышления».
+- Механизм стал наблюдаемым: цель → шаги → инструменты → действие → данные → результат.
+- Добавлены сильные и слабые случаи.
+- Прогноз привязан к метрике, источнику, порогу и сроку.
+- Нет гибридного англо-жаргона: `runtime`, `evidence trail`, `workflow-запуски`, `retention`, `novelty`, `frame`.
+
+---
 
 ### 3) 中文 — 市场 / 组织判断
 
@@ -40,93 +123,85 @@ A claim-rewriting skill for turning elegant-but-unsafe ideas into bounded, falsi
 
 **改写后**
 
-> AI 不会简单地让中层管理消失；它会先压缩那些只负责转发信息、汇总状态、追问进度的管理层。仍然有价值的中层会转向三个更难自动化的任务：定义责任边界、处理冲突、判断什么时候不该优化局部效率。
+> AI 不会让中层管理作为一个类别消失。它会先压缩那些主要负责转发信息、汇总状态、追问进度的岗位。
 >
-> 可验证预测：到 2027 年底，采用 AI 工作流的公司会减少纯状态汇报型岗位，但不会同比例减少负责跨团队决策、绩效判断和风险承担的岗位。如果两类岗位同时下降，本判断需要修正。
+> 仍然有价值的中层管理会集中在三类工作上：定义责任边界、处理跨团队冲突、为取舍和结果承担责任。
+>
+> 可验证预测：到 2027-12-31，在已经公开采用 AI 工作流的公司中，职位描述以状态汇总和进度追踪为主的中层岗位减少速度，应高于明确承担跨团队决策、绩效判断或风险责任的岗位。验证来源：公司招聘信息、组织公告、裁员说明、岗位说明变化。如果两类岗位以相近速度下降，本判断需要修正。
 
-**变化:** 原句把“协调自动化”误写成“管理消失”。改写后保留趋势，但给出边界、反例和可验证条件。
+**变化**
 
-## Why this approach exists
+- 原句把“协调自动化”误写成“管理消失”。
+- 改写后保留趋势，但限定了岗位类型。
+- 预测包含日期、对象、比较关系和可检查来源。
 
-Good language is dangerous when it makes weak models feel inevitable. Founders, researchers, strategists, investors, and agent builders often write sentences that sound complete before they are testable. The result is aesthetic capture: the claim becomes memorable before it becomes true.
+---
 
-Wu-Wei Rewriter uses the opposite pressure. It does not push harder; it removes forcing. It asks what the system already rewards, what the claim predicts, what decision changes, where it fails, and what a competent rival frame would say. This is why the name borrows from *wu wei*: not as decorative mysticism, but as a discipline of reducing coercive language until the remaining claim can stand by itself.
+## Output modes
 
-The skill is useful when a draft needs to survive contact with adults: a skeptical operator, investor, reviewer, engineer, regulator, or future version of yourself. It rewrites by subtraction, boundary-setting, falsifiability, polarity awareness, and revision integrity.
+Default mode is `compact`, not `full`.
 
-## Что это такое по-русски
+| Mode | Use when | Output |
+|---|---|---|
+| `compact` | Fast rewrite, pitch cleanup, normal note sharpening | Rewrite, boundary, one prediction, killed claims, next check |
+| `decision` | Strategy memo, investment thesis, hiring system, architecture recommendation | Full schema with predictions, polarity notes, killed claims, elegance audit, frame log |
+| `frame_log` | You only want to record a thesis for later review | Frame log entry + kill condition |
+| `critique_only` | You want diagnosis but no rewrite yet | Failure map, repair path, risky assumptions, suggested tests |
 
-Wu-Wei Rewriter — это скилл для переписывания тезисов, питчей, гипотез, рекомендаций и фреймворков так, чтобы они перестали быть красивыми пустыми формулами и стали проверяемыми рабочими утверждениями.
+Aliases from v1.x:
 
-Он нужен там, где обычная редактура вредна: она делает текст гладким, но не делает мысль честнее. Этот скилл, наоборот, режет «несущую пустоту», связывает claim с областью применимости, добавляет falsifiable predictions, явно убивает слабые утверждения и оставляет Frame Log entry, чтобы через 6/12/24 месяца можно было проверить, не переписали ли мы историю задним числом.
+| Old | New |
+|---|---|
+| `quick` | `compact` |
+| `full` | `decision` |
+| `frame_log_only` | `frame_log` |
 
-## What the skill does
+---
 
-Pipeline:
+## Prediction contract
 
-```text
-ARTIFACT → DIAGNOSE → TEST → REWRITE → KILL → FRAME LOG → DELIVER
+Every non-speculative retained claim needs at least one prediction:
+
+```yaml
+P1:
+  claim: "..."
+  metric: "observable quantity or event"
+  source: "where a third party can check it"
+  threshold: "what must be true"
+  check_date: "YYYY-MM-DD"
+  confirmed_if: "..."
+  weakened_if: "..."
+  falsified_if: "..."
 ```
 
-It works on:
+If no credible metric or source can be named, do not invent precision. Mark the claim `SPECULATIVE` and provide a measurement plan.
 
-- thesis
-- claim
-- recommendation
-- pitch
-- conclusion
-- hypothesis
-- framework
-- concept
-
-It is strongest for:
-
-- AI strategy claims
-- investor / founder pitch language
-- product positioning
-- research conclusions
-- architecture recommendations
-- hiring / org design arguments
-- market theses
-- public essays and memos
-- Obsidian notes that should become testable frames
-
-## Output shape
-
-The default output contains:
-
-1. `REWRITE` — a shippable rewrite.
-2. `BOUNDARY` — applies to / does not apply to / failure modes.
-3. `PREDICTIONS` — dated falsifiable predictions.
-4. `POLARITY NOTES` — reversal risks and phase advice.
-5. `KILLED CLAIMS` — weak claims removed visibly, not silently softened.
-6. `ELEGANCE AUDIT` — beautiful-but-not-true sentences removed or rewritten.
-7. `FRAME LOG ENTRY` — review dates, kill condition, revision integrity.
+---
 
 ## Usage
-
-Ask your agent to use the skill when you have an existing artifact to sharpen:
 
 ```text
 Use wu-wei-rewriter on this thesis:
 "Taste is the only moat in AI products."
 ```
 
-With structured inputs:
+Structured input:
 
-```text
+```yaml
 artifact_type: pitch
 domain: product
 intended_use: investor_pitch
 pitch_mode: persuasive_allowed
 creative_mode: ship
-artifact_text: "Our product creates a new language for human-agent collaboration."
+output_mode: compact
+artifact_text: |
+  Our product creates a new language for human-agent collaboration.
 ```
 
 Russian:
 
 ```text
-Прогони через wu-wei-rewriter: где тут пустота, какие claims надо убить, что можно проверить через 90 дней?
+Прогони через wu-wei-rewriter: где тут пустота, какие утверждения надо убрать, что можно проверить через 90 дней?
 ```
 
 Chinese:
@@ -135,86 +210,64 @@ Chinese:
 用 wu-wei-rewriter 重写这个判断，让它有边界、反例和可验证预测。
 ```
 
-## Modes
+---
 
-| Mode | Default | Use when |
-|---|---:|---|
-| `pitch_mode=strict` | yes | research, strategy, decision inputs, public claims |
-| `pitch_mode=persuasive_allowed` | no | founder/investor pitch where persuasive language is allowed but predictions remain required |
-| `creative_mode=ship` | yes | final or decision-grade artifact |
-| `creative_mode=explore` | no | early-stage exploration where rival/counterexample tests are advisory |
-| `output_mode=full` | yes | complete schema |
-| `output_mode=quick` | no | fast triage: rewrite, boundary, prediction, killed claims |
-| `output_mode=frame_log_only` | no | record the frame without a full rewrite |
+## Installation
+
+```bash
+git clone https://github.com/agisota/wu-wei-skill.git
+cd wu-wei-skill
+bash scripts/install_all_cli.sh
+bash scripts/validate.sh
+```
+
+Build the portable skill package:
+
+```bash
+bash scripts/package.sh
+# dist/wu-wei-rewriter.skill
+```
+
+The installer symlinks the canonical `skill/` directory into the local CLI skill roots used by Codex, Claude Code, OpenCode, Kimi, Gemini, Hermes, Droid, Pi, and the shared archive when those roots exist.
+
+---
 
 ## Repository layout
 
 ```text
-skill/SKILL.md                    skill entrypoint
-skill/system_prompt_v1.2.md        authoritative behavior contract
-skill/references/                  expanded principles and refusal examples
-skill/schema/frame_log.sql          optional Supabase append-only Frame Log
-skill/scripts/frame_log_append.py   local JSONL Frame Log helper
-skill/evals/golden_set.jsonl        56 golden cases
-skill/evals/grader.py               LLM judge runner
-scripts/install_all_cli.sh          symlink install into local CLI skill roots
-scripts/package.sh                  build dist/wu-wei-rewriter.skill
+skill/SKILL.md                         skill entrypoint
+skill/system_prompt_v1.3.md             authoritative behavior contract, v1.3
+skill/references/anti_slop.md           anti-slop taxonomy and checks
+skill/references/ru_style_guide.md      Russian output style guide
+skill/references/refusal_conditions_v2.md repair-first structural objections
+skill/references/mode_matrix.md         output-mode decision matrix
+skill/evals/golden_set.jsonl            existing golden cases
+skill/evals/golden_set_ru.jsonl         Russian anti-slop golden cases
+skill/evals/grader_prompt_v2.md         LLM judge with language-integrity rubric
+skill/evals/regression_checklist.md     30 regression checks
+scripts/install_all_cli.sh              symlink install into local CLI skill roots
+scripts/package.sh                      build dist/wu-wei-rewriter.skill
 ```
 
-## Install locally
-
-From the repository root:
-
-```bash
-bash scripts/install_all_cli.sh
-```
-
-Default roots:
-
-- `~/.codex/skills`
-- `~/.claude/skills`
-- `~/.config/opencode/skills`
-- `~/.kimi/skills`
-- `~/.gemini/skills`
-- `~/.hermes/skills`
-- `~/.droid/skills`
-- `~/.pi/skills`
-- `~/.config/pi/skills`
-- `~/.agents/skills.shared-archive`
-
-Add more roots with:
-
-```bash
-EXTRA_SKILL_ROOTS="$HOME/.cursor/skills:$HOME/.config/zed/skills" bash scripts/install_all_cli.sh
-```
+---
 
 ## Validate
 
 ```bash
-python ~/.ai-agent-hub/skill-quality/validate_skill.py --skill skill
 bash skill/scripts/run_evals.sh --dry-run --limit 5
+bash skill/scripts/run_evals.sh --type pitch
+bash skill/scripts/run_evals.sh --case gs_ru_v2_001
+bash skill/scripts/run_evals.sh --rejudge --use-cache
 ```
 
-Full evals require an Anthropic API key:
+Full evals require the configured LLM judge key used by the runner.
 
-```bash
-ANTHROPIC_API_KEY=... bash skill/scripts/run_evals.sh --limit 5
-```
+---
 
-The eval runner keeps dependencies in `skill/.venv` and writes results under `skill/evals/results/`.
-
-## Packaging
-
-```bash
-bash scripts/package.sh
-```
-
-Output:
+## Design rule
 
 ```text
-dist/wu-wei-rewriter.skill
+A rewrite fails if it replaces one abstraction with another abstraction.
 ```
 
-## License
-
-MIT.
+Good output should feel less impressive and more useful.

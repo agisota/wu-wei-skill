@@ -8,13 +8,15 @@ cd "$ROOT"
 usage() {
   cat <<'USAGE'
 Usage:
-  bash scripts/run_evals.sh [--dry-run] [--limit N] [--type artifact_type] [--case id]
-  bash scripts/run_evals.sh --rejudge [--limit N] [--type artifact_type] [--case id]
+  bash scripts/run_evals.sh [--dry-run] [--limit N] [--type artifact_type] [--case id] [--golden all|base|ru]
+  bash scripts/run_evals.sh --rejudge [--limit N] [--type artifact_type] [--case id] [--golden all|base|ru]
 
 Environment:
   ANTHROPIC_API_KEY   required unless --dry-run
   REWRITER_MODEL      default: claude-opus-4-7
   JUDGE_MODEL         default: claude-sonnet-4-6
+  WU_WEI_SYSTEM_PROMPT   optional override; default: system_prompt_v1.3.md
+  WU_WEI_GRADER_PROMPT   optional override; default: grader_prompt_v2.md
 USAGE
 }
 

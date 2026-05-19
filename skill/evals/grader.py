@@ -3,22 +3,14 @@
 Wu-Wei Rewriter — autograder.
 
 Pipeline:
-  1. Load evals/golden_set.jsonl
-  2. For each case: invoke the rewriter (Anthropic API, system_prompt_v1.2.md)
-  3. Invoke the LLM judge (separate model) with grader_prompt.md
-  4. Compute structural assertions deterministically (regex/section presence)
+  1. Load evals/golden_set.jsonl and evals/golden_set_ru.jsonl when present
+  2. For each case: invoke the rewriter (Anthropic API, system_prompt_v1.3.md)
+  3. Invoke the LLM judge (separate model) with grader_prompt_v2.md
+  4. Compute structural assertions deterministically
   5. Merge judge JSON + structural assertions
   6. Write results jsonl + summary md to evals/results/<timestamp>/
 
-Usage:
-  python evals/grader.py                              # full run
-  python evals/grader.py --type pitch                 # filter by artifact_type
-  python evals/grader.py --limit 5                    # smoke test
-  python evals/grader.py --case gs_022                # single case
-  python evals/grader.py --skip-rewriter --use-cache  # re-judge cached rewrites
-
-Requires:  ANTHROPIC_API_KEY  in env
-Optional:  REWRITER_MODEL (default claude-opus-4-7), JUDGE_MODEL (default claude-sonnet-4-6)
+Dry runs do not require anthropic or ANTHROPIC_API_KEY.
 """
 from __future__ import annotations
 
@@ -28,47 +20,77 @@ import os
 import re
 import sys
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 try:
     import anthropic  # type: ignore
-except ImportError:
-    print("ERROR: pip install --break-system-packages anthropic", file=sys.stderr)
-    sys.exit(1)
+except ImportError:  # dry-run and structural-only workflows should still work
+    anthropic = None  # type: ignore
 
 ROOT = Path(__file__).resolve().parent.parent
-SYS_PROMPT_PATH = ROOT / "system_prompt_v1.2.md"
-JUDGE_PROMPT_PATH = ROOT / "evals" / "grader_prompt.md"
-GOLDEN_PATH = ROOT / "evals" / "golden_set.jsonl"
+SYS_PROMPT_PATH = Path(os.environ.get(
+    "WU_WEI_SYSTEM_PROMPT",
+    str(ROOT / "system_prompt_v1.3.md" if (ROOT / "system_prompt_v1.3.md").exists() else ROOT / "system_prompt_v1.2.md"),
+))
+JUDGE_PROMPT_PATH = Path(os.environ.get(
+    "WU_WEI_GRADER_PROMPT",
+    str(ROOT / "evals" / "grader_prompt_v2.md" if (ROOT / "evals" / "grader_prompt_v2.md").exists() else ROOT / "evals" / "grader_prompt.md"),
+))
+BASE_GOLDEN_PATH = ROOT / "evals" / "golden_set.jsonl"
+RU_GOLDEN_PATH = ROOT / "evals" / "golden_set_ru.jsonl"
 RESULTS_DIR = ROOT / "evals" / "results"
 CACHE_DIR = ROOT / "evals" / ".cache"
 
 REWRITER_MODEL = os.environ.get("REWRITER_MODEL", "claude-opus-4-7")
 JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "claude-sonnet-4-6")
 
-REQUIRED_SECTIONS = [
-    "## REWRITE", "## BOUNDARY", "## PREDICTIONS",
-    "## POLARITY NOTES", "## KILLED CLAIMS", "## ELEGANCE AUDIT",
-    "## FRAME LOG ENTRY",
-]
-OBJECTION_HEADER = "## OBJECTION"
+SECTION_ALIASES = {
+    "rewrite": ["## REWRITE", "## Переписанная версия", "## 改写", "## 改写后", "## 重写"],
+    "boundary": ["## BOUNDARY", "## Граница", "## Область применимости", "## 边界"],
+    "prediction": ["## ONE TESTABLE PREDICTION", "## PREDICTIONS", "## Проверка", "## Проверяемые прогнозы", "## 可验证预测"],
+    "polarity": ["## POLARITY NOTES", "## Риски обратного эффекта", "## Риски разворота", "## Полярность"],
+    "killed": ["## KILLED CLAIMS", "## KILLED / WEAK CLAIMS", "## Убрано или ослаблено", "## Снятые утверждения", "## Что я бы убрал", "## 被删除的主张"],
+    "elegance": ["## ELEGANCE AUDIT", "## Аудит красивых фраз", "## Аудит языка"],
+    "frame_log": ["## FRAME LOG ENTRY", "## Запись для журнала рамки", "## Frame Log"],
+    "next_check": ["## NEXT CHECK", "## Следующая проверка", "## 下一次检查"],
+    "diagnosis": ["## DIAGNOSIS", "## Диагноз", "## 诊断"],
+    "repair": ["## REPAIR PATH", "## Что надо уточнить", "## Минимальная ремонтная версия", "repair path", "ремонт", "минимальная рабочая версия"],
+    "kill_condition": ["## KILL CONDITION", "## Условие снятия", "kill_condition:"],
+}
+
+PREDICTION_LABELS = {
+    "metric": ["metric", "метрика", "指标"],
+    "source": ["source", "источник", "来源"],
+    "threshold": ["threshold", "порог", "阈值"],
+    "check_date": ["check_date", "check date", "дата проверки", "срок проверки", "到 ", "日期"],
+    "confirmed_if": ["confirmed_if", "confirmed if", "подтвердится", "confirmed"],
+    "weakened_if": ["weakened_if", "weakened if", "ослабнет", "weakened"],
+    "falsified_if": ["falsified_if", "falsified if", "опровергнется", "falsified"],
+}
+
+OBJECTION_RE = re.compile(
+    r"STRUCTURAL OBJECTION|СТРУКТУРНОЕ ВОЗРАЖЕНИЕ|##\s*OBJECTION|##\s*Возражение|结构性反对",
+    re.IGNORECASE,
+)
 
 
-# ---------------------------------------------------------------------------
-# data classes
-# ---------------------------------------------------------------------------
 @dataclass
 class StructuralAssertions:
     expected_outcome_matched: Optional[bool] = None
     refusal_type_correct: Optional[bool] = None
+    repair_path_present_if_objection: Optional[bool] = None
     kills_count_ok: Optional[bool] = None
     predictions_count_ok: Optional[bool] = None
+    prediction_contract_complete: Optional[bool] = None
     polarity_flag_present_as_expected: Optional[bool] = None
-    frame_log_present: Optional[bool] = None
-    schema_order_correct: Optional[bool] = None
+    frame_log_present_when_required: Optional[bool] = None
+    schema_mode_correct: Optional[bool] = None
+    language_integrity_required_met: Optional[bool] = None
+    must_not_contain_clean: Optional[bool] = None
+    must_contain_present: Optional[bool] = None
 
 
 @dataclass
@@ -84,25 +106,37 @@ class CaseResult:
     error: Optional[str] = None
 
 
-# ---------------------------------------------------------------------------
-# rewriter & judge calls
-# ---------------------------------------------------------------------------
-def call_rewriter(client: anthropic.Anthropic, system_prompt: str, case: dict) -> str:
-    """Build the user message from the case and call the rewriter model."""
+def selected_output_mode(case: dict) -> str:
+    modes = case.get("modes", {}) or {}
+    return (case.get("expected_output_mode") or modes.get("output_mode") or "decision")
+
+
+def selected_strict_schema(case: dict) -> bool:
+    if "strict_schema" in case:
+        return bool(case["strict_schema"])
+    # Old base golden-set rows predate localized schemas; keep them strict for continuity.
+    return case.get("expected_output_mode") is None
+
+
+def call_rewriter(client, system_prompt: str, case: dict) -> str:
+    modes = case.get("modes", {}) or {}
     user_payload = {
         "artifact_text": case["input"],
         "artifact_type": case["artifact_type"],
         "domain": case.get("domain"),
         "intended_use": case.get("intended_use"),
         "author_confidence": case.get("author_confidence"),
-        "pitch_mode": case.get("modes", {}).get("pitch_mode", "strict"),
-        "creative_mode": case.get("modes", {}).get("creative_mode", "ship"),
+        "pitch_mode": modes.get("pitch_mode", "strict"),
+        "creative_mode": modes.get("creative_mode", "ship"),
+        "output_mode": selected_output_mode(case),
+        "strict_schema": selected_strict_schema(case),
+        "output_language": case.get("output_language", "artifact"),
         "prior_versions": case.get("prior_versions", []),
     }
     user_msg = (
-        "Process the following artifact through the Wu-Wei Rewriter pipeline.\n\n"
+        "Process the following artifact through the Wu-Wei Rewriter v1.3 pipeline.\n\n"
         f"```json\n{json.dumps(user_payload, ensure_ascii=False, indent=2)}\n```\n\n"
-        "Emit the strict OUTPUT SCHEMA. No preamble."
+        "Emit the selected output mode only. No preamble."
     )
     resp = client.messages.create(
         model=REWRITER_MODEL,
@@ -113,9 +147,7 @@ def call_rewriter(client: anthropic.Anthropic, system_prompt: str, case: dict) -
     return "".join(b.text for b in resp.content if b.type == "text")
 
 
-def call_judge(client: anthropic.Anthropic, judge_prompt: str,
-               case: dict, rewriter_output: str) -> dict:
-    """Send the case + agent output to the judge model. Expect strict JSON back."""
+def call_judge(client, judge_prompt: str, case: dict, rewriter_output: str) -> dict:
     user_msg = (
         f"## CASE\n```json\n{json.dumps(case, ensure_ascii=False, indent=2)}\n```\n\n"
         f"## AGENT OUTPUT\n```\n{rewriter_output}\n```\n\n"
@@ -137,89 +169,186 @@ def call_judge(client: anthropic.Anthropic, judge_prompt: str,
         return {"_judge_parse_error": str(e), "_raw": text[:2000]}
 
 
-# ---------------------------------------------------------------------------
-# structural assertions (deterministic, regex/section checks)
-# ---------------------------------------------------------------------------
+def _low(text: str) -> str:
+    return text.casefold()
+
+
+def has_section(output: str, category: str) -> bool:
+    low = _low(output)
+    return any(_low(alias) in low for alias in SECTION_ALIASES[category])
+
+
+def section_position(output: str, category: str) -> int:
+    low = _low(output)
+    positions = [low.find(_low(alias)) for alias in SECTION_ALIASES[category]]
+    positions = [p for p in positions if p >= 0]
+    return min(positions) if positions else -1
+
+
+def extract_block(output: str, category: str) -> str:
+    pos = section_position(output, category)
+    if pos < 0:
+        return ""
+    rest = output[pos:]
+    m = re.search(r"\n##\s+", rest[1:])
+    return rest[: m.start() + 1] if m else rest
+
+
+def has_prediction_label(output: str, label: str) -> bool:
+    low = _low(output)
+    return any(_low(token) in low for token in PREDICTION_LABELS[label])
+
+
+def prediction_contract_complete(output: str, required: list[str] | None = None) -> bool:
+    required = required or ["metric", "source", "threshold", "check_date"]
+    return all(has_prediction_label(output, r) for r in required)
+
+
+def count_predictions(output: str) -> int:
+    count = len(re.findall(r"(?m)^\s*-?\s*P\d+\s*:", output))
+    if count == 0 and re.search(r"Prediction\s*:|Прогноз\s*:|可验证预测", output, re.IGNORECASE):
+        count = 1
+    return count
+
+
+def contains_near_kill_context(output: str, term: str) -> bool:
+    low = _low(output)
+    t = _low(term)
+    idx = low.find(t)
+    if idx < 0:
+        return True
+    while idx >= 0:
+        window = low[max(0, idx - 180): idx + len(t) + 180]
+        if re.search(r"убра|снят|kill|killed|removed|запрещ|не использ|метафор|slop|weak|слаб", window):
+            return True
+        idx = low.find(t, idx + len(t))
+    return False
+
+
+def has_repair_path(output: str) -> bool:
+    low = _low(output)
+    return (
+        has_section(output, "repair")
+        or "repair path" in low
+        or "что нужно добавить" in low
+        or "что надо уточнить" in low
+        or "операционное определение" in low
+        or "минимальная рабочая версия" in low
+        or "weaker version" in low
+    )
+
+
+def schema_mode_correct(case: dict, output: str) -> bool:
+    mode = selected_output_mode(case)
+    if mode == "full":
+        mode = "decision"
+    if mode == "quick":
+        mode = "compact"
+    if mode == "frame_log_only":
+        mode = "frame_log"
+
+    if mode == "compact":
+        return all(has_section(output, k) for k in ["rewrite", "boundary", "prediction", "killed", "next_check"])
+    if mode == "decision":
+        return all(has_section(output, k) for k in ["rewrite", "boundary", "prediction", "polarity", "killed", "elegance", "frame_log"])
+    if mode == "frame_log":
+        return has_section(output, "frame_log") and has_section(output, "kill_condition")
+    if mode == "critique_only":
+        return has_section(output, "diagnosis") and has_repair_path(output)
+    return True
+
+
+def extract_refusal_type(output: str) -> Optional[int]:
+    patterns = [
+        r"(?:Type|Condition|condition|#)\s*:?\s*#?\s*(\d+)",
+        r"(?:Тип|Условие|условие)\s*:?\s*#?\s*(\d+)",
+        r"#\s*(\d+)\s*[—-]",
+    ]
+    for pat in patterns:
+        m = re.search(pat, output, re.IGNORECASE)
+        if m:
+            try:
+                return int(m.group(1))
+            except ValueError:
+                pass
+    return None
+
+
 def check_structure(case: dict, output: str) -> StructuralAssertions:
     a = StructuralAssertions()
     expected = case["expected_outcome"]
-    is_objection = OBJECTION_HEADER in output
+    is_objection = bool(OBJECTION_RE.search(output))
 
     if expected == "objection":
         a.expected_outcome_matched = is_objection
         expected_type = case.get("expected_refusal_type")
         if expected_type is not None and is_objection:
-            m = re.search(r"Type:\s*(?:condition\s*)?#?(\d+)", output, re.IGNORECASE)
-            a.refusal_type_correct = bool(m and int(m.group(1)) == expected_type)
-        a.frame_log_present = None
-        a.schema_order_correct = None
+            a.refusal_type_correct = extract_refusal_type(output) == expected_type
+        else:
+            a.refusal_type_correct = None
+        a.repair_path_present_if_objection = has_repair_path(output) if is_objection else False
         a.kills_count_ok = None
         a.predictions_count_ok = None
+        a.prediction_contract_complete = None
         a.polarity_flag_present_as_expected = None
-        return a
-
-    # expected outcome is rewrite or mixed
-    a.expected_outcome_matched = not is_objection
-
-    # frame log
-    a.frame_log_present = "## FRAME LOG ENTRY" in output
-
-    # schema order
-    positions = [output.find(s) for s in REQUIRED_SECTIONS]
-    a.schema_order_correct = all(p > -1 for p in positions) and \
-        positions == sorted(positions)
-
-    # kills count
-    kills_block = _extract_block(output, "## KILLED CLAIMS", "##")
-    kill_lines = [ln for ln in kills_block.splitlines() if ln.strip().startswith("-")]
-    a.kills_count_ok = len(kill_lines) >= case.get("expected_kills_min", 0)
-
-    # predictions count
-    pred_block = _extract_block(output, "## PREDICTIONS", "##")
-    pred_lines = [ln for ln in pred_block.splitlines()
-                  if re.match(r"^\s*-?\s*P\d+:", ln)]
-    speculative = "SPECULATIVE" in output.upper()
-    min_preds = case.get("expected_predictions_min", 0)
-    a.predictions_count_ok = len(pred_lines) >= min_preds or (min_preds == 0 and speculative)
-
-    # polarity flag
-    pol_block = _extract_block(output, "## POLARITY NOTES", "##")
-    has_polarity_content = bool(re.search(r"reversal|too much|polarity|phase",
-                                          pol_block, re.IGNORECASE))
-    if case.get("expected_polarity_flag"):
-        a.polarity_flag_present_as_expected = has_polarity_content
+        a.frame_log_present_when_required = None
+        a.schema_mode_correct = None
     else:
-        a.polarity_flag_present_as_expected = True  # not required
+        a.expected_outcome_matched = not is_objection
+        a.refusal_type_correct = None
+        a.repair_path_present_if_objection = None
+
+        killed_block = extract_block(output, "killed")
+        kill_lines = [ln for ln in killed_block.splitlines() if re.match(r"^\s*[-*]|^\s*(Removed|Убрано|Снято)", ln, re.IGNORECASE)]
+        a.kills_count_ok = len(kill_lines) >= case.get("expected_kills_min", 0)
+
+        min_preds = case.get("expected_predictions_min", 0)
+        pred_count = count_predictions(output)
+        speculative = "SPECULATIVE" in output.upper() or "СПЕКУЛЯТИВ" in output.upper()
+        a.predictions_count_ok = pred_count >= min_preds or (min_preds == 0 and speculative)
+        if min_preds > 0:
+            a.prediction_contract_complete = prediction_contract_complete(output, case.get("prediction_requirements"))
+        else:
+            a.prediction_contract_complete = None
+
+        if case.get("expected_polarity_flag"):
+            pol_block = extract_block(output, "polarity")
+            a.polarity_flag_present_as_expected = bool(
+                pol_block.strip()
+                or re.search(r"reversal|polarity|обратн|разворот|слишком|риск", output, re.IGNORECASE)
+            )
+        else:
+            a.polarity_flag_present_as_expected = True
+
+        mode = selected_output_mode(case)
+        a.frame_log_present_when_required = has_section(output, "frame_log") if mode in {"decision", "frame_log", "full", "frame_log_only"} else True
+        a.schema_mode_correct = schema_mode_correct(case, output)
+
+    must_not = case.get("must_not_contain") or []
+    a.must_not_contain_clean = all(contains_near_kill_context(output, term) for term in must_not)
+    must = case.get("must_contain") or []
+    out_low = _low(output)
+    a.must_contain_present = all(_low(term) in out_low for term in must)
+    if case.get("language_integrity_required"):
+        a.language_integrity_required_met = bool(a.must_not_contain_clean)
+    else:
+        a.language_integrity_required_met = None
 
     return a
 
 
-def _extract_block(text: str, start_header: str, stop_prefix: str) -> str:
-    idx = text.find(start_header)
-    if idx < 0:
-        return ""
-    rest = text[idx + len(start_header):]
-    # find next header at same level
-    m = re.search(rf"\n{re.escape(stop_prefix)} ", rest)
-    return rest[:m.start()] if m else rest
-
-
-# ---------------------------------------------------------------------------
-# orchestration
-# ---------------------------------------------------------------------------
 def aggregate_from_judge(judge: dict) -> str:
     if "_judge_parse_error" in judge:
         return "FAIL"
     grades = [v.get("grade") for v in judge.get("scores", {}).values()]
     if any(g == "FAIL" for g in grades):
         return "FAIL"
-    if all(g == "PASS" for g in grades):
+    if grades and all(g == "PASS" for g in grades):
         return "PASS"
     return "WEAK"
 
 
-def run_case(client, system_prompt, judge_prompt, case, use_cache: bool,
-             skip_rewriter: bool) -> CaseResult:
+def run_case(client, system_prompt: str, judge_prompt: str, case: dict, use_cache: bool, skip_rewriter: bool) -> CaseResult:
     t0 = time.time()
     cache_file = CACHE_DIR / f"{case['id']}.txt"
     output = ""
@@ -258,16 +387,49 @@ def run_case(client, system_prompt, judge_prompt, case, use_cache: bool,
         )
 
 
-def write_summary(results: list[CaseResult], out_path: Path) -> None:
+def load_cases(selection: str) -> tuple[list[dict], list[Path]]:
+    paths: list[Path]
+    if selection == "base":
+        paths = [BASE_GOLDEN_PATH]
+    elif selection == "ru":
+        paths = [RU_GOLDEN_PATH]
+    else:
+        paths = [BASE_GOLDEN_PATH, RU_GOLDEN_PATH]
+
+    cases: list[dict] = []
+    used: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        if not path.exists():
+            continue
+        used.append(path)
+        with path.open(encoding="utf-8") as f:
+            for line_no, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                if row["id"] in seen:
+                    raise ValueError(f"duplicate case id {row['id']} in {path}:{line_no}")
+                seen.add(row["id"])
+                cases.append(row)
+    return cases, used
+
+
+def write_summary(results: list[CaseResult], out_path: Path, used_files: list[Path]) -> None:
     from collections import Counter
+
     by_agg = Counter(r.aggregate for r in results)
     by_type = {}
     for r in results:
         by_type.setdefault(r.artifact_type, Counter())[r.aggregate] += 1
 
     lines = [
-        f"# Wu-Wei Rewriter — Eval Summary",
+        "# Wu-Wei Rewriter — Eval Summary",
         f"_Run: {datetime.now(timezone.utc).isoformat()}_",
+        f"_System prompt: {SYS_PROMPT_PATH.name}_",
+        f"_Judge prompt: {JUDGE_PROMPT_PATH.name}_",
+        f"_Golden files: {', '.join(p.name for p in used_files)}_",
         f"_Rewriter model: {REWRITER_MODEL}_",
         f"_Judge model: {JUDGE_MODEL}_",
         "",
@@ -303,28 +465,34 @@ def main() -> int:
     ap.add_argument("--domain", help="filter by domain")
     ap.add_argument("--limit", type=int, help="cap number of cases")
     ap.add_argument("--case", help="run a single case by id")
-    ap.add_argument("--use-cache", action="store_true",
-                    help="reuse cached rewriter outputs if present")
-    ap.add_argument("--skip-rewriter", action="store_true",
-                    help="never call the rewriter; require cache")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="print plan, do not call any API")
+    ap.add_argument("--golden", choices=["all", "base", "ru"], default="all", help="which golden-set file(s) to load")
+    ap.add_argument("--use-cache", action="store_true", help="reuse cached rewriter outputs if present")
+    ap.add_argument("--skip-rewriter", action="store_true", help="never call the rewriter; require cache")
+    ap.add_argument("--dry-run", action="store_true", help="print plan, do not call any API")
     args = ap.parse_args()
+
+    if not SYS_PROMPT_PATH.exists():
+        print(f"ERROR: missing system prompt: {SYS_PROMPT_PATH}", file=sys.stderr)
+        return 2
+    if not JUDGE_PROMPT_PATH.exists():
+        print(f"ERROR: missing judge prompt: {JUDGE_PROMPT_PATH}", file=sys.stderr)
+        return 2
 
     if not os.environ.get("ANTHROPIC_API_KEY") and not args.dry_run:
         print("ERROR: set ANTHROPIC_API_KEY", file=sys.stderr)
+        return 2
+    if anthropic is None and not args.dry_run:
+        print("ERROR: pip install anthropic (or use --dry-run)", file=sys.stderr)
         return 2
 
     system_prompt = SYS_PROMPT_PATH.read_text(encoding="utf-8")
     judge_prompt = JUDGE_PROMPT_PATH.read_text(encoding="utf-8")
 
-    cases = []
-    with open(GOLDEN_PATH, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            cases.append(json.loads(line))
+    try:
+        cases, used_files = load_cases(args.golden)
+    except Exception as e:
+        print(f"ERROR: failed loading golden set: {e}", file=sys.stderr)
+        return 2
 
     if args.case:
         cases = [c for c in cases if c["id"] == args.case]
@@ -335,12 +503,22 @@ def main() -> int:
     if args.limit:
         cases = cases[: args.limit]
 
-    print(f"plan: {len(cases)} cases | rewriter={REWRITER_MODEL} | judge={JUDGE_MODEL}",
-          file=sys.stderr)
+    if not cases:
+        print("ERROR: no cases matched filters", file=sys.stderr)
+        return 4
+
+    print(
+        f"plan: {len(cases)} cases | rewriter={REWRITER_MODEL} | judge={JUDGE_MODEL} | "
+        f"system={SYS_PROMPT_PATH.name} | grader={JUDGE_PROMPT_PATH.name} | "
+        f"golden={','.join(p.name for p in used_files)}",
+        file=sys.stderr,
+    )
     if args.dry_run:
         for c in cases:
-            print(f"  {c['id']}  {c['artifact_type']}/{c.get('domain','-')}",
-                  file=sys.stderr)
+            print(
+                f"  {c['id']}  {c['artifact_type']}/{c.get('domain','-')}  mode={selected_output_mode(c)} strict_schema={selected_strict_schema(c)}",
+                file=sys.stderr,
+            )
         return 0
 
     client = anthropic.Anthropic()
@@ -351,19 +529,15 @@ def main() -> int:
     summary_path = out_dir / "summary.md"
 
     results = []
-    with open(results_path, "w", encoding="utf-8") as f:
+    with results_path.open("w", encoding="utf-8") as f:
         for i, case in enumerate(cases, 1):
             print(f"[{i}/{len(cases)}] {case['id']}", file=sys.stderr)
-            r = run_case(client, system_prompt, judge_prompt, case,
-                         use_cache=args.use_cache, skip_rewriter=args.skip_rewriter)
+            r = run_case(client, system_prompt, judge_prompt, case, use_cache=args.use_cache, skip_rewriter=args.skip_rewriter)
             results.append(r)
-            f.write(json.dumps({
-                **asdict(r),
-                "structural": asdict(r.structural),
-            }, ensure_ascii=False) + "\n")
+            f.write(json.dumps({**asdict(r), "structural": asdict(r.structural)}, ensure_ascii=False) + "\n")
             f.flush()
 
-    write_summary(results, summary_path)
+    write_summary(results, summary_path, used_files)
     print(f"\n=> {results_path}", file=sys.stderr)
     print(f"=> {summary_path}", file=sys.stderr)
     return 0
